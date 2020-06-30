@@ -1,0 +1,6 @@
+*.ini
+!example.ini
+*.json
+node_modules/
+*.pdf
+*.jpg
