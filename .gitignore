@@ -4,3 +4,4 @@
 node_modules/
 *.pdf
 *.jpg
+.DS_Store
