@@ -2,7 +2,8 @@ const electron = require('electron');
 const remote = electron.remote;
 const net = require('net');
 const timeout = 30000
-const host = 'digital-signage-server.local';
+// const host = 'digital-signage-server.local';
+const host = 'localhost';
 const port = '30000'
 
 function socket_connect(client){

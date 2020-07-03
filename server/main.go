@@ -12,15 +12,26 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
+	"text/template"
 	"time"
 
+	"github.com/labstack/echo"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
 	"gopkg.in/gographics/imagick.v3/imagick"
 	"gopkg.in/ini.v1"
 )
+
+type Template struct {
+	templates *template.Template
+}
+
+func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	return t.templates.ExecuteTemplate(w, name, data)
+}
 
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
@@ -80,6 +91,8 @@ func saveToken(file string, token *oauth2.Token) {
 }
 
 func getPDF(client *http.Client, folderID string) ([]string, int) {
+	p, _ := os.Executable()
+	p = filepath.Dir(p)
 	srv, err := drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve Drive client: %v", err)
@@ -98,7 +111,7 @@ func getPDF(client *http.Client, folderID string) ([]string, int) {
 			if err != nil {
 				log.Fatalf("%v", err)
 			}
-			output, err := os.Create("tmp/" + i.Name)
+			output, err := os.Create(filepath.Join(p, "tmp", i.Name))
 			io.Copy(output, r.Body)
 			// fmt.Println(n)
 			fileName = append(fileName, i.Name)
@@ -110,17 +123,19 @@ func getPDF(client *http.Client, folderID string) ([]string, int) {
 	for _, i := range fileName {
 		mw := imagick.NewMagickWand()
 		defer mw.Destroy()
-		mw.ReadImage("tmp/" + i)
+		mw.ReadImage(filepath.Join(p, "tmp", i))
 		mw.SetIteratorIndex(0)
 		mw.SetImageFormat("jpg")
-		mw.WriteImage("page/" + i + ".jpg")
+		mw.WriteImage(filepath.Join(p, "page", i+".jpg"))
 		imageList = append(imageList, i+".jpg")
 	}
 	return imageList, len(imageList)
 }
 
 func image2base64(path string) []byte {
-	file, _ := os.Open("page/" + path)
+	p, _ := os.Executable()
+	p = filepath.Dir(p)
+	file, _ := os.Open(filepath.Join(p, "page", path))
 	defer file.Close()
 	f, err := file.Stat()
 	if err != nil {
@@ -133,21 +148,25 @@ func image2base64(path string) []byte {
 }
 
 func makeTmpFolder() {
-	if err := os.RemoveAll("tmp"); err != nil {
+	p, _ := os.Executable()
+	p = filepath.Dir(p)
+	if err := os.RemoveAll(filepath.Join(p, "tmp")); err != nil {
 		fmt.Println(err)
 	}
-	if err := os.Mkdir("tmp", 0777); err != nil {
+	if err := os.Mkdir(filepath.Join(p, "tmp"), 0777); err != nil {
 		fmt.Println(err)
 	}
-	if err := os.RemoveAll("page"); err != nil {
+	if err := os.RemoveAll(filepath.Join(p, "page")); err != nil {
 		fmt.Println(err)
 	}
-	if err := os.Mkdir("page", 0777); err != nil {
+	if err := os.Mkdir(filepath.Join(p, "page"), 0777); err != nil {
 		fmt.Println(err)
 	}
 }
 func setLog() {
-	f, err := os.OpenFile("signage_server.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	p, _ := os.Executable()
+	p = filepath.Dir(p)
+	f, err := os.OpenFile(filepath.Join(p, "signage_server.log"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
@@ -156,16 +175,35 @@ func setLog() {
 }
 
 func openConf() string {
-	c, _ := ini.Load("config.ini")
+	p, _ := os.Executable()
+	p = filepath.Dir(p)
+	fmt.Print("Path : ")
+	fmt.Println(p)
+	c, _ := ini.Load(filepath.Join(p, "config.ini"))
 	return c.Section("INFO").Key("FOLDERID").String()
 }
 
+// func webServer() {
+// 	e := echo.New()
+// 	t := &Template{
+// 		templates: template.Must(template.ParseGlob("views/*.html")),
+// 	}
+// 	e.Renderer = t
+// 	e.GET("/", func(c echo.Context) error {
+// 		return c.Render(http.StatusOK, "index", map[string]interface{}{"data": "test"})
+// 	})
+// 	e.Logger.Fatal(e.Start(":80"))
+// }
+
 func main() {
+	// go webServer()
+	p, _ := os.Executable()
+	p = filepath.Dir(p)
 	folderID := openConf()
 	makeTmpFolder()
 	setLog()
 	ctx := context.Background()
-	b, err := ioutil.ReadFile("client_secret.json")
+	b, err := ioutil.ReadFile(filepath.Join(p, "client_secret.json"))
 	config, err := google.ConfigFromJSON(b, drive.DriveReadonlyScope, drive.DriveFileScope)
 	if err != nil {
 		log.Println(err)
