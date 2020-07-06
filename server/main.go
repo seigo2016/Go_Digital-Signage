@@ -11,13 +11,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
+	"strconv"
+	"strings"
+
+	// "os/exec"
 	"path/filepath"
 	"syscall"
-	"text/template"
 	"time"
 
-	"github.com/labstack/echo"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
@@ -25,13 +26,13 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-type Template struct {
-	templates *template.Template
-}
+// type Template struct {
+// 	templates *template.Template
+// }
 
-func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
-	return t.templates.ExecuteTemplate(w, name, data)
-}
+// func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+// 	return t.templates.ExecuteTemplate(w, name, data)
+// }
 
 func tokenFromFile(file string) (*oauth2.Token, error) {
 	f, err := os.Open(file)
@@ -63,10 +64,11 @@ func getClient(ctx context.Context, config *oauth2.Config) *http.Client {
 
 func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 	authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	err := exec.Command("open", authURL).Start()
-	if err != nil {
-		panic(err)
-	}
+	// err := exec.Command("open", authURL).Start()
+	fmt.Println(authURL)
+	// if err != nil {
+	//	panic(err)
+	// }
 	var code string
 	if _, err := fmt.Scan(&code); err != nil {
 		fmt.Printf("Err %v\n", err)
@@ -105,6 +107,21 @@ func getPDF(client *http.Client, folderID string) ([]string, int) {
 	var fileName []string
 	if len(r.Files) == 0 {
 		fmt.Println("No files found.")
+		fileName = append(fileName, "404.pdf")
+		src, err := os.Open(filepath.Join(p, "views", "404.pdf"))
+		if err != nil {
+			panic(err)
+		}
+		defer src.Close()
+		dst, err := os.Create(filepath.Join(p, "tmp", "404.pdf"))
+		if err != nil {
+			panic(err)
+		}
+		defer dst.Close()
+		_, err = io.Copy(dst, src)
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		for _, i := range r.Files {
 			r, err := srv.Files.Get(i.Id).Download()
@@ -113,26 +130,31 @@ func getPDF(client *http.Client, folderID string) ([]string, int) {
 			}
 			output, err := os.Create(filepath.Join(p, "tmp", i.Name))
 			io.Copy(output, r.Body)
-			// fmt.Println(n)
 			fileName = append(fileName, i.Name)
 		}
 	}
 	imagick.Initialize()
 	defer imagick.Terminate()
 	var imageList []string
+	const layout = "Monday-Jan-02-15:04:05-JST-2006"
 	for _, i := range fileName {
+		// t := time.Now()
+		name := strings.Replace(i, ".pdf", "", -1)
+		// name := t.Format(layout)
 		mw := imagick.NewMagickWand()
 		defer mw.Destroy()
 		mw.ReadImage(filepath.Join(p, "tmp", i))
 		mw.SetIteratorIndex(0)
-		mw.SetImageFormat("jpg")
-		mw.WriteImage(filepath.Join(p, "page", i+".jpg"))
-		imageList = append(imageList, i+".jpg")
+		err := mw.SetImageFormat("png")
+		fmt.Println(err)
+		err = mw.WriteImage(filepath.Join(p, "page", name+".png"))
+		// fmt.Println(err)
+		imageList = append(imageList, name+".png")
 	}
 	return imageList, len(imageList)
 }
 
-func image2base64(path string) []byte {
+func image2base64(path string) ([]byte, int64) {
 	p, _ := os.Executable()
 	p = filepath.Dir(p)
 	file, _ := os.Open(filepath.Join(p, "page", path))
@@ -144,7 +166,8 @@ func image2base64(path string) []byte {
 	size := f.Size()
 	data := make([]byte, size)
 	file.Read(data)
-	return data
+	fmt.Println(size)
+	return data, size
 }
 
 func makeTmpFolder() {
@@ -177,8 +200,6 @@ func setLog() {
 func openConf() string {
 	p, _ := os.Executable()
 	p = filepath.Dir(p)
-	fmt.Print("Path : ")
-	fmt.Println(p)
 	c, _ := ini.Load(filepath.Join(p, "config.ini"))
 	return c.Section("INFO").Key("FOLDERID").String()
 }
@@ -227,11 +248,14 @@ func main() {
 		go func(conn net.Conn) {
 			fmt.Println("Connected")
 			for {
-				fmt.Println(cnt)
-				data := image2base64(imageList[cnt%filelen])
+				body, size := image2base64(imageList[cnt%filelen])
+				data := []byte(strconv.Itoa(int(size)))
+				data = append(data, body...)
 				time.Sleep(time.Second * 20)
-				_, werr := conn.Write(data)
+				a, werr := conn.Write(data)
+				fmt.Println(a)
 				if werr != nil {
+					fmt.Println(werr)
 					if opErr, ok := werr.(*net.OpError); ok {
 						if sysErr, okok := opErr.Err.(*os.SyscallError); okok && sysErr.Err == syscall.EPIPE {
 							fmt.Println("Disconnected")
