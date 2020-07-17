@@ -18,7 +18,7 @@ app.on('ready', function() {
     'fullscreen': true, 'frame': false
     });
   mainWindow.loadFile('index.html')
-  mainWindow.webContents.openDevTools()
+//  mainWindow.webContents.openDevTools()
   mainWindow.on('closed', function() {
     mainWindow = null;
   });

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,18 +12,22 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 
 	// "os/exec"
+	"image/jpeg"
 	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/nfnt/resize"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
-	"gopkg.in/gographics/imagick.v3/imagick"
+
+	"github.com/gen2brain/go-fitz"
+
+	// "gopkg.in/gographics/imagick.v3/imagick"
 	"gopkg.in/ini.v1"
 )
 
@@ -133,23 +138,38 @@ func getPDF(client *http.Client, folderID string) ([]string, int) {
 			fileName = append(fileName, i.Name)
 		}
 	}
-	imagick.Initialize()
-	defer imagick.Terminate()
+	// imagick.Initialize()
+	// defer imagick.Terminate()
 	var imageList []string
-	const layout = "Monday-Jan-02-15:04:05-JST-2006"
+	// const layout = "Monday-Jan-02-15:04:05-JST-2006"
 	for _, i := range fileName {
 		// t := time.Now()
 		name := strings.Replace(i, ".pdf", "", -1)
-		// name := t.Format(layout)
-		mw := imagick.NewMagickWand()
-		defer mw.Destroy()
-		mw.ReadImage(filepath.Join(p, "tmp", i))
-		mw.SetIteratorIndex(0)
-		err := mw.SetImageFormat("png")
-		fmt.Println(err)
-		err = mw.WriteImage(filepath.Join(p, "page", name+".png"))
-		// fmt.Println(err)
-		imageList = append(imageList, name+".png")
+		doc, err := fitz.New(filepath.Join(p, "tmp", i))
+		if err != nil {
+			panic(err)
+		}
+		defer doc.Close()
+		for n := 0; n < 1; n++ {
+			img, err := doc.Image(n)
+			if err != nil {
+				panic(err)
+			}
+
+			f, err := os.Create(filepath.Join(p, "page", name+".jpeg"))
+			if err != nil {
+				panic(err)
+			}
+			img = resize.Thumbnail(1080, 1920, img, resize.Lanczos3)
+			err = jpeg.Encode(f, img, &jpeg.Options{jpeg.DefaultQuality})
+			if err != nil {
+				panic(err)
+			}
+
+			f.Close()
+
+		}
+		imageList = append(imageList, name+".jpeg")
 	}
 	return imageList, len(imageList)
 }
@@ -164,9 +184,13 @@ func image2base64(path string) ([]byte, int64) {
 		fmt.Printf("The file is %d bytes long %v", err)
 	}
 	size := f.Size()
+	// size = fmt.Printf("%06d", size)
 	data := make([]byte, size)
+	// sizeb := make([]byte, binary.MaxVarintLen64)
+	// binary.PutVarint(sizeb, size)
 	file.Read(data)
-	fmt.Println(size)
+	data = append(data, []byte("\n\n")...)
+	// data = append(sizeb, data...)
 	return data, size
 }
 
@@ -204,20 +228,7 @@ func openConf() string {
 	return c.Section("INFO").Key("FOLDERID").String()
 }
 
-// func webServer() {
-// 	e := echo.New()
-// 	t := &Template{
-// 		templates: template.Must(template.ParseGlob("views/*.html")),
-// 	}
-// 	e.Renderer = t
-// 	e.GET("/", func(c echo.Context) error {
-// 		return c.Render(http.StatusOK, "index", map[string]interface{}{"data": "test"})
-// 	})
-// 	e.Logger.Fatal(e.Start(":80"))
-// }
-
 func main() {
-	// go webServer()
 	p, _ := os.Executable()
 	p = filepath.Dir(p)
 	folderID := openConf()
@@ -248,21 +259,16 @@ func main() {
 		go func(conn net.Conn) {
 			fmt.Println("Connected")
 			for {
-				body, size := image2base64(imageList[cnt%filelen])
-				data := []byte(strconv.Itoa(int(size)))
-				data = append(data, body...)
-				time.Sleep(time.Second * 20)
-				a, werr := conn.Write(data)
-				fmt.Println(a)
+				body, _ := image2base64(imageList[cnt%filelen])
+				_, werr := conn.Write(body)
 				if werr != nil {
-					fmt.Println(werr)
-					if opErr, ok := werr.(*net.OpError); ok {
-						if sysErr, okok := opErr.Err.(*os.SyscallError); okok && sysErr.Err == syscall.EPIPE {
-							fmt.Println("Disconnected")
-							break
-						}
+					fmt.Printf("Error: %v\n", werr)
+					if errors.Is(werr, syscall.EPIPE) {
+						fmt.Println("Disconnected")
+						break
 					}
 				}
+				time.Sleep(time.Second * 20)
 				if cnt == (filelen*2)-1 {
 					imageList, filelen = getPDF(client, folderID)
 					cnt = 0

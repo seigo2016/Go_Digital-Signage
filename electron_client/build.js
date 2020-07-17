@@ -5,9 +5,14 @@ builder.build({
         'appId': 'com.seigo2016.signage',
         'linux':{
             'target': {
-                'target': 'deb',
+                'target': 'zip',
                 'arch': 'arm64'
             }
         }
+        // 'mac':{
+        //     'target':{
+        //         'target': 'zip'
+        //     }
+        // }
     }
 });
