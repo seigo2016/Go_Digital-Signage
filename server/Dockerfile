@@ -2,26 +2,21 @@ FROM arm64v8/debian:buster
 
 EXPOSE 30000
 
-RUN apt update
-RUN apt install git make wget gcc -y && \
+RUN apt update && apt install wget git gcc ca-certificates -y && \
     apt clean -y && \
     rm -rf /var/lib/apt/lists/*
 
-RUN wget https://golang.org/dl/go1.14.4.linux-arm64.tar.gz
-RUN tar -C /usr/local -xzf go1.14.4.linux-arm64.tar.gz
+RUN wget  --no-check-certificate https://golang.org/dl/go1.14.4.linux-arm64.tar.gz && \
+    tar -C /usr/local -xzf go1.14.4.linux-arm64.tar.gz
 
 ENV PATH $PATH:/usr/local/go/bin
 
-RUN go get gopkg.in/ini.v1
-RUN go get golang.org/x/oauth2
-RUN go get golang.org/x/oauth2/google
+RUN go get gopkg.in/ini.v1 \
+    golang.org/x/oauth2 \
+    golang.org/x/oauth2/google \
+    github.com/gen2brain/go-fitz \
+    github.com/nfnt/resize
 
-RUN go get github.com/gen2brain/go-fitz
-RUN go get github.com/nfnt/resize
-
-# RUN go get google.golang.org/api/drive/v3
-
-RUN mkdir /workdir
 WORKDIR /workdir
 COPY . .
 

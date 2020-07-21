@@ -1,25 +1,26 @@
 const electron = require('electron');
 const remote = electron.remote;
 const net = require('net');
-const timeout = 30000
+const timeout = 10 * 1000
 const jimp = require('jimp')
 // const host = '192.168.0.5';
 const host = 'signage-server.local'
 // const host = 'localhost'
 const port = '30000'
-function socket_connect(client){
+function socket_connect(){
+    let client = new net.Socket();
     client.connect(port, host, () => {;
         console.log('Connect: ' + host + ':' + port);
     })
+    return client
 }
 
-function socket_close(client){
-    setTimeout(socket_connect, timeout, client);
+function socket_close(){
+    setTimeout(main, timeout);
 }
 
 function main(){
-    let client = new net.Socket();
-    socket_connect(client);
+    let client = socket_connect()
     client.on('connect', ()=>{
         let prev_data = new Buffer("", 'base64')
         let all_data;
@@ -32,9 +33,7 @@ function main(){
                 jimp.read(all_data).then(image => {
                     image.rotate(90).getBase64(jimp.MIME_PNG, function (err, src) {
                         image_element.src = src;
-                    }).catch(function (err){
-                        console.error(err)
-                    });
+                    })
                 }).catch(function (err) {
                     console.error(err);
                 });
@@ -43,7 +42,11 @@ function main(){
                 prev_data = Buffer.concat([prev_data, s]);
             }
         })
-        client.on('close', function(){socket_close(client)});
     });
+    client.on('error', (err) => {
+        console.log(err)
+        socket_close()
+    });
+    client.on('close', function(){socket_close()});
 }
 main()
